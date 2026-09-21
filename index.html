@@ -91,6 +91,55 @@
     font-variant-numeric: tabular-nums;
     word-break: break-all;
   }
+
+  .hidden { display: none !important; }
+
+  /* Plain-CSS replacements for Tailwind arbitrary-value / slash-opacity
+     classes, which the static v2 CDN stylesheet (no JIT) doesn't support. */
+  .text-11 { font-size: 11px; line-height: 1.4; }
+  .header-bar {
+    background: rgba(0,0,0,0.95);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+  }
+  .overlay-backdrop { background: rgba(0,0,0,0.6); }
+  .sheet-bg { background: #1c1c1e; }
+  .icon-btn { background: rgba(255,255,255,0.1); }
+  .icon-btn:active { background: rgba(255,255,255,0.2); }
+  .search-input { background: #2c2c2e; }
+
+  #manage-sheet {
+    transform: translateY(100%);
+    transition: transform 0.22s ease;
+  }
+  #manage-overlay.open #manage-sheet {
+    transform: translateY(0);
+  }
+  #manage-backdrop {
+    opacity: 0;
+    transition: opacity 0.22s ease;
+  }
+  #manage-overlay.open #manage-backdrop {
+    opacity: 1;
+  }
+
+  .catalog-row {
+    background: #2c2c2e;
+    border-radius: 12px;
+  }
+  .catalog-row:active { background: #3a3a3c; }
+  .catalog-check {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1.5px solid #6b6b6f;
+    flex-shrink: 0;
+  }
+  .catalog-row.is-active .catalog-check {
+    background: #34c759;
+    border-color: #34c759;
+  }
 </style>
 </head>
 <body class="bg-black text-white overflow-hidden">
@@ -98,14 +147,14 @@
 <div class="flex flex-col h-screen-safe w-full bg-black">
 
   <!-- Header -->
-  <div class="safe-top sticky top-0 z-20 bg-black/95 backdrop-blur border-b border-white/10">
+  <div class="safe-top sticky top-0 z-20 header-bar">
     <div class="px-4 pt-3 pb-3 flex items-center justify-between">
       <div>
         <h1 class="text-lg font-semibold tracking-tight">Currency Exchange</h1>
-        <p id="update-ts" class="text-[11px] text-gray-500 mt-0.5">Updated: —</p>
+        <p id="update-ts" class="text-11 text-gray-500 mt-0.5">Updated: —</p>
       </div>
       <div class="text-right">
-        <div class="text-[11px] text-gray-500">Base</div>
+        <div class="text-11 text-gray-500">Base</div>
         <div id="base-label" class="text-base font-bold text-green-400">ILS</div>
       </div>
     </div>
@@ -119,7 +168,7 @@
   <!-- Keyboard panel -->
   <div id="keypad-panel" class="safe-bottom shrink-0 px-3 pt-3 pb-3">
     <div class="flex items-center justify-between mb-2 px-1">
-      <div class="text-[11px] text-gray-500">Editing <span id="editing-code" class="text-gray-300 font-semibold">ILS</span></div>
+      <div class="text-11 text-gray-500">Editing <span id="editing-code" class="text-gray-300 font-semibold">ILS</span></div>
       <div id="expr-display" class="text-2xl font-semibold text-right flex-1 ml-4 truncate">0</div>
     </div>
     <div class="grid grid-cols-4 gap-2" style="height: 260px;">
@@ -145,11 +194,29 @@
 
       <button class="kbtn" data-value="0">0</button>
       <button class="kbtn" data-value=".">.</button>
-      <button class="kbtn kbtn-fn" data-action="reset-base">↺</button>
+      <button class="kbtn kbtn-fn" data-action="manage" style="font-size:22px;">💱</button>
       <button class="kbtn kbtn-eq" data-action="equals">=</button>
     </div>
   </div>
 
+</div>
+
+<!-- Manage currencies sheet -->
+<div id="manage-overlay" class="fixed inset-0 z-30 hidden">
+  <div id="manage-backdrop" class="absolute inset-0 overlay-backdrop"></div>
+  <div id="manage-sheet" class="absolute left-0 right-0 bottom-0 sheet-bg rounded-t-2xl flex flex-col" style="max-height: 80vh;">
+    <div class="safe-bottom flex flex-col" style="max-height: 80vh;">
+      <div class="flex items-center justify-between px-4 pt-4 pb-2 shrink-0">
+        <h2 class="text-base font-semibold">Manage Currencies</h2>
+        <button id="manage-close-btn" class="w-8 h-8 rounded-full icon-btn text-base flex items-center justify-center">✕</button>
+      </div>
+      <div class="px-4 pb-2 shrink-0">
+        <input id="manage-search" type="text" placeholder="Search currency"
+          class="w-full search-input rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none" style="-webkit-user-select: text; user-select: text;">
+      </div>
+      <div id="manage-list" class="flex-1 overflow-y-auto px-4 pb-4 space-y-1.5"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -159,16 +226,66 @@
   // ---------------------------------------------------------------------
   // Config
   // ---------------------------------------------------------------------
-  var CURRENCIES = [
+  var DEFAULT_CODES = ["ILS", "GBP", "USD", "EUR", "BTC", "SGD", "IDR"];
+
+  // Full catalog of currencies available to add via the manage-currencies sheet.
+  var CATALOG = [
     { code: "ILS", flag: "🇮🇱", name: "Israeli Shekel" },
     { code: "GBP", flag: "🇬🇧", name: "British Pound" },
     { code: "USD", flag: "🇺🇸", name: "US Dollar" },
     { code: "EUR", flag: "🇪🇺", name: "Euro" },
     { code: "BTC", flag: "🪙", name: "Bitcoin" },
     { code: "SGD", flag: "🇸🇬", name: "Singapore Dollar" },
-    { code: "IDR", flag: "🇮🇩", name: "Indonesian Rupiah" }
+    { code: "IDR", flag: "🇮🇩", name: "Indonesian Rupiah" },
+    { code: "AUD", flag: "🇦🇺", name: "Australian Dollar" },
+    { code: "CAD", flag: "🇨🇦", name: "Canadian Dollar" },
+    { code: "CHF", flag: "🇨🇭", name: "Swiss Franc" },
+    { code: "CNY", flag: "🇨🇳", name: "Chinese Yuan" },
+    { code: "HKD", flag: "🇭🇰", name: "Hong Kong Dollar" },
+    { code: "JPY", flag: "🇯🇵", name: "Japanese Yen" },
+    { code: "KRW", flag: "🇰🇷", name: "South Korean Won" },
+    { code: "NZD", flag: "🇳🇿", name: "New Zealand Dollar" },
+    { code: "SEK", flag: "🇸🇪", name: "Swedish Krona" },
+    { code: "NOK", flag: "🇳🇴", name: "Norwegian Krone" },
+    { code: "DKK", flag: "🇩🇰", name: "Danish Krone" },
+    { code: "PLN", flag: "🇵🇱", name: "Polish Zloty" },
+    { code: "CZK", flag: "🇨🇿", name: "Czech Koruna" },
+    { code: "HUF", flag: "🇭🇺", name: "Hungarian Forint" },
+    { code: "RON", flag: "🇷🇴", name: "Romanian Leu" },
+    { code: "TRY", flag: "🇹🇷", name: "Turkish Lira" },
+    { code: "ZAR", flag: "🇿🇦", name: "South African Rand" },
+    { code: "MXN", flag: "🇲🇽", name: "Mexican Peso" },
+    { code: "BRL", flag: "🇧🇷", name: "Brazilian Real" },
+    { code: "ARS", flag: "🇦🇷", name: "Argentine Peso" },
+    { code: "CLP", flag: "🇨🇱", name: "Chilean Peso" },
+    { code: "COP", flag: "🇨🇴", name: "Colombian Peso" },
+    { code: "PEN", flag: "🇵🇪", name: "Peruvian Sol" },
+    { code: "INR", flag: "🇮🇳", name: "Indian Rupee" },
+    { code: "PKR", flag: "🇵🇰", name: "Pakistani Rupee" },
+    { code: "BDT", flag: "🇧🇩", name: "Bangladeshi Taka" },
+    { code: "LKR", flag: "🇱🇰", name: "Sri Lankan Rupee" },
+    { code: "NPR", flag: "🇳🇵", name: "Nepalese Rupee" },
+    { code: "THB", flag: "🇹🇭", name: "Thai Baht" },
+    { code: "VND", flag: "🇻🇳", name: "Vietnamese Dong" },
+    { code: "PHP", flag: "🇵🇭", name: "Philippine Peso" },
+    { code: "MYR", flag: "🇲🇾", name: "Malaysian Ringgit" },
+    { code: "TWD", flag: "🇹🇼", name: "Taiwan Dollar" },
+    { code: "AED", flag: "🇦🇪", name: "UAE Dirham" },
+    { code: "SAR", flag: "🇸🇦", name: "Saudi Riyal" },
+    { code: "QAR", flag: "🇶🇦", name: "Qatari Riyal" },
+    { code: "KWD", flag: "🇰🇼", name: "Kuwaiti Dinar" },
+    { code: "BHD", flag: "🇧🇭", name: "Bahraini Dinar" },
+    { code: "OMR", flag: "🇴🇲", name: "Omani Rial" },
+    { code: "JOD", flag: "🇯🇴", name: "Jordanian Dinar" },
+    { code: "EGP", flag: "🇪🇬", name: "Egyptian Pound" },
+    { code: "NGN", flag: "🇳🇬", name: "Nigerian Naira" },
+    { code: "KES", flag: "🇰🇪", name: "Kenyan Shilling" },
+    { code: "GHS", flag: "🇬🇭", name: "Ghanaian Cedi" },
+    { code: "MAD", flag: "🇲🇦", name: "Moroccan Dirham" },
+    { code: "RUB", flag: "🇷🇺", name: "Russian Ruble" },
+    { code: "UAH", flag: "🇺🇦", name: "Ukrainian Hryvnia" }
   ];
-  var CODES = CURRENCIES.map(function (c) { return c.code; });
+  var CATALOG_CODES = CATALOG.map(function (c) { return c.code; });
   var API_URL = "https://open.er-api.com/v6/latest/USD";
   var LS_RATES = "fx_calc_rates_v1";
   var LS_ORDER = "fx_calc_order_v1";
@@ -185,7 +302,7 @@
   var state = {
     ratesUsd: {},      // code -> units of code per 1 USD
     updatedAt: null,   // Date
-    order: CODES.slice(),
+    order: DEFAULT_CODES.slice(),
     baseCode: "ILS",
     amount: 1,
     expression: "1"
@@ -254,7 +371,7 @@
         throw new Error("malformed payload");
       }
       var rates = {};
-      CODES.forEach(function (code) {
+      CATALOG_CODES.forEach(function (code) {
         if (code === "BTC") return; // handled separately below
         if (typeof data.rates[code] === "number") {
           rates[code] = data.rates[code];
@@ -359,13 +476,10 @@
   function loadOrder() {
     var saved = loadJSON(LS_ORDER, null);
     if (Array.isArray(saved) && saved.length) {
-      var valid = saved.filter(function (c) { return CODES.indexOf(c) !== -1; });
-      CODES.forEach(function (c) {
-        if (valid.indexOf(c) === -1) valid.push(c);
-      });
-      return valid;
+      var valid = saved.filter(function (c) { return CATALOG_CODES.indexOf(c) !== -1; });
+      if (valid.length) return valid;
     }
-    return CODES.slice();
+    return DEFAULT_CODES.slice();
   }
 
   function saveOrder(order) {
@@ -378,7 +492,7 @@
   var listEl = document.getElementById("list-container");
 
   function currencyByCode(code) {
-    return CURRENCIES.filter(function (c) { return c.code === code; })[0];
+    return CATALOG.filter(function (c) { return c.code === code; })[0];
   }
 
   function renderList() {
@@ -401,11 +515,11 @@
           '<div class="min-w-0">' +
             '<div class="flex items-baseline gap-2">' +
               '<span class="font-bold text-base tracking-tight">' + meta.code + '</span>' +
-              '<span class="text-[11px] text-gray-500 truncate">' + meta.name + '</span>' +
+              '<span class="text-11 text-gray-500 truncate">' + meta.name + '</span>' +
             '</div>' +
             (isBase
-              ? '<div class="text-[11px] text-green-400 mt-0.5">Base currency</div>'
-              : '<div class="text-[11px] text-gray-500 mt-0.5">1 ' + state.baseCode + ' &rarr; ' + formatRatio(ratio) + ' ' + code + '</div>'
+              ? '<div class="text-11 text-green-400 mt-0.5">Base currency</div>'
+              : '<div class="text-11 text-gray-500 mt-0.5">1 ' + state.baseCode + ' &rarr; ' + formatRatio(ratio) + ' ' + code + '</div>'
             ) +
           '</div>' +
         '</div>';
@@ -436,7 +550,7 @@
   });
 
   function setBaseCurrency(code) {
-    if (!CODES.includes(code)) return;
+    if (!state.order.includes(code)) return;
     state.baseCode = code;
     saveJSON(LS_BASE, code);
     document.getElementById("base-label").textContent = code;
@@ -465,6 +579,78 @@
       setTimeout(function () { isSorting = false; }, 50);
     }
   });
+
+  // ---------------------------------------------------------------------
+  // Manage currencies sheet
+  // ---------------------------------------------------------------------
+  var manageOverlay = document.getElementById("manage-overlay");
+  var manageList = document.getElementById("manage-list");
+  var manageSearch = document.getElementById("manage-search");
+  var manageCloseBtn = document.getElementById("manage-close-btn");
+  var manageBackdrop = document.getElementById("manage-backdrop");
+
+  function openManageSheet() {
+    manageSearch.value = "";
+    renderManageList("");
+    manageOverlay.classList.remove("hidden");
+    requestAnimationFrame(function () {
+      manageOverlay.classList.add("open");
+    });
+  }
+
+  function closeManageSheet() {
+    manageOverlay.classList.remove("open");
+    setTimeout(function () {
+      manageOverlay.classList.add("hidden");
+    }, 220);
+  }
+
+  function renderManageList(filter) {
+    var q = (filter || "").trim().toLowerCase();
+    manageList.innerHTML = "";
+    CATALOG.forEach(function (c) {
+      if (q && c.code.toLowerCase().indexOf(q) === -1 && c.name.toLowerCase().indexOf(q) === -1) return;
+      var isActive = state.order.includes(c.code);
+      var row = document.createElement("div");
+      row.className = "catalog-row flex items-center gap-3 px-3 py-2.5" + (isActive ? " is-active" : "");
+      row.dataset.code = c.code;
+      row.innerHTML =
+        '<div class="text-xl leading-none">' + c.flag + '</div>' +
+        '<div class="flex-1 min-w-0">' +
+          '<div class="font-semibold text-sm">' + c.code + '</div>' +
+          '<div class="text-11 text-gray-500 truncate">' + c.name + '</div>' +
+        '</div>' +
+        '<div class="catalog-check"></div>';
+      manageList.appendChild(row);
+    });
+  }
+
+  function toggleCurrency(code) {
+    var idx = state.order.indexOf(code);
+    if (idx !== -1) {
+      if (state.order.length <= 1) return; // always keep at least one active currency
+      state.order.splice(idx, 1);
+      if (state.baseCode === code) {
+        setBaseCurrency(state.order[0]);
+      }
+    } else {
+      state.order.push(code); // new currencies land at the bottom of the list
+    }
+    saveOrder(state.order);
+    renderList();
+  }
+
+  manageList.addEventListener("click", function (e) {
+    var row = e.target.closest(".catalog-row");
+    if (!row) return;
+    toggleCurrency(row.dataset.code);
+    renderManageList(manageSearch.value);
+  });
+  manageSearch.addEventListener("input", function () {
+    renderManageList(manageSearch.value);
+  });
+  manageCloseBtn.addEventListener("click", closeManageSheet);
+  manageBackdrop.addEventListener("click", closeManageSheet);
 
   // ---------------------------------------------------------------------
   // Keypad / expression evaluator
@@ -520,8 +706,9 @@
       if (isFinite(current)) {
         state.expression = String(current / 100);
       }
-    } else if (action === "reset-base") {
-      setBaseCurrency("ILS");
+    } else if (action === "manage") {
+      openManageSheet();
+      return;
     } else if (action === "equals") {
       var result = safeEval(state.expression);
       if (isFinite(result)) {
@@ -555,7 +742,7 @@
     state.order = loadOrder();
 
     var savedBase = loadJSON(LS_BASE, null);
-    state.baseCode = (savedBase && CODES.includes(savedBase)) ? savedBase : "ILS";
+    state.baseCode = (savedBase && state.order.includes(savedBase)) ? savedBase : state.order[0];
     document.getElementById("base-label").textContent = state.baseCode;
     document.getElementById("editing-code").textContent = state.baseCode;
 
