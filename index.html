@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>FX Calculator</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="data:application/manifest+json,{%22name%22:%22FX%20Calculator%22,%22short_name%22:%22FX%22,%22display%22:%22standalone%22,%22background_color%22:%22%23000000%22,%22theme_color%22:%22%23000000%22}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body {
+    background: #000000;
+    height: 100%;
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+  }
+  * {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  }
+  .safe-top { padding-top: env(safe-area-inset-top, 0px); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .h-screen-safe { height: 100dvh; }
+
+  .card {
+    background: #1c1c1e;
+    border: 1px solid rgba(255,255,255,0.06);
+    transition: transform 0.08s ease, background 0.15s ease;
+  }
+  .card:active { transform: scale(0.985); background: #232325; }
+  .card.is-base {
+    background: #142a1c;
+    border: 1px solid rgba(52, 199, 89, 0.4);
+  }
+  .drag-handle {
+    color: #6b6b6f;
+    touch-action: none;
+    padding: 4px 10px;
+  }
+  .sortable-ghost { opacity: 0.35; }
+  .sortable-chosen { background: #2a2a2c; }
+
+  .kbtn {
+    background: #2c2c2e;
+    color: #ffffff;
+    font-size: 24px;
+    font-weight: 500;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.08s ease, transform 0.06s ease;
+  }
+  .kbtn:active { background: #3a3a3c; transform: scale(0.96); }
+  .kbtn-op {
+    background: #e48b25;
+    color: #ffffff;
+  }
+  .kbtn-op:active { background: #f0a04a; }
+  .kbtn-fn {
+    background: #4a4a4c;
+    color: #ffffff;
+    font-size: 18px;
+  }
+  .kbtn-fn:active { background: #5a5a5c; }
+  .kbtn-eq {
+    background: #34c759;
+    color: #ffffff;
+  }
+  .kbtn-eq:active { background: #45d46a; }
+
+  #keypad-panel {
+    background: #1c1c1e;
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+
+  ::-webkit-scrollbar { display: none; }
+
+  #expr-display {
+    font-variant-numeric: tabular-nums;
+    word-break: break-all;
+  }
+</style>
+</head>
+<body class="bg-black text-white overflow-hidden">
+
+<div class="flex flex-col h-screen-safe w-full bg-black">
+
+  <!-- Header -->
+  <div class="safe-top sticky top-0 z-20 bg-black/95 backdrop-blur border-b border-white/10">
+    <div class="px-4 pt-3 pb-3 flex items-center justify-between">
+      <div>
+        <h1 class="text-lg font-semibold tracking-tight">Currency Exchange</h1>
+        <p id="update-ts" class="text-[11px] text-gray-500 mt-0.5">Updated: —</p>
+      </div>
+      <div class="text-right">
+        <div class="text-[11px] text-gray-500">Base</div>
+        <div id="base-label" class="text-base font-bold text-green-400">ILS</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scrolling list -->
+  <div id="list-container" class="flex-1 overflow-y-auto px-3 py-3 space-y-2.5">
+    <!-- cards injected here -->
+  </div>
+
+  <!-- Keyboard panel -->
+  <div id="keypad-panel" class="safe-bottom shrink-0 px-3 pt-3 pb-3">
+    <div class="flex items-center justify-between mb-2 px-1">
+      <div class="text-[11px] text-gray-500">Editing <span id="editing-code" class="text-gray-300 font-semibold">ILS</span></div>
+      <div id="expr-display" class="text-2xl font-semibold text-right flex-1 ml-4 truncate">0</div>
+    </div>
+    <div class="grid grid-cols-4 gap-2" style="height: 260px;">
+      <button class="kbtn kbtn-fn" data-action="clear">AC</button>
+      <button class="kbtn kbtn-fn" data-action="back">⌫</button>
+      <button class="kbtn kbtn-fn" data-action="percent">%</button>
+      <button class="kbtn kbtn-op" data-value="/">÷</button>
+
+      <button class="kbtn" data-value="7">7</button>
+      <button class="kbtn" data-value="8">8</button>
+      <button class="kbtn" data-value="9">9</button>
+      <button class="kbtn kbtn-op" data-value="*">×</button>
+
+      <button class="kbtn" data-value="4">4</button>
+      <button class="kbtn" data-value="5">5</button>
+      <button class="kbtn" data-value="6">6</button>
+      <button class="kbtn kbtn-op" data-value="-">−</button>
+
+      <button class="kbtn" data-value="1">1</button>
+      <button class="kbtn" data-value="2">2</button>
+      <button class="kbtn" data-value="3">3</button>
+      <button class="kbtn kbtn-op" data-value="+">+</button>
+
+      <button class="kbtn" data-value="0">0</button>
+      <button class="kbtn" data-value=".">.</button>
+      <button class="kbtn kbtn-fn" data-action="reset-base">↺</button>
+      <button class="kbtn kbtn-eq" data-action="equals">=</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------------------------------------------------------------------
+  // Config
+  // ---------------------------------------------------------------------
+  var CURRENCIES = [
+    { code: "ILS", flag: "🇮🇱", name: "Israeli Shekel" },
+    { code: "GBP", flag: "🇬🇧", name: "British Pound" },
+    { code: "USD", flag: "🇺🇸", name: "US Dollar" },
+    { code: "EUR", flag: "🇪🇺", name: "Euro" },
+    { code: "BTC", flag: "🪙", name: "Bitcoin" },
+    { code: "SGD", flag: "🇸🇬", name: "Singapore Dollar" },
+    { code: "IDR", flag: "🇮🇩", name: "Indonesian Rupiah" }
+  ];
+  var CODES = CURRENCIES.map(function (c) { return c.code; });
+  var API_URL = "https://open.er-api.com/v6/latest/USD";
+  var LS_RATES = "fx_calc_rates_v1";
+  var LS_ORDER = "fx_calc_order_v1";
+  var LS_BASE = "fx_calc_base_v1";
+  var LS_AMOUNT = "fx_calc_amount_v1";
+
+  // BTC is not a fiat rate from er-api; we treat it specially with a fallback
+  // approximate USD price, only used if nothing better is cached/fetched.
+  var FALLBACK_BTC_USD = 60000;
+
+  // ---------------------------------------------------------------------
+  // State
+  // ---------------------------------------------------------------------
+  var state = {
+    ratesUsd: {},      // code -> units of code per 1 USD
+    updatedAt: null,   // Date
+    order: CODES.slice(),
+    baseCode: "ILS",
+    amount: 1,
+    expression: "1"
+  };
+
+  // ---------------------------------------------------------------------
+  // Utilities
+  // ---------------------------------------------------------------------
+  function loadJSON(key, fallback) {
+    try {
+      var raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      return JSON.parse(raw);
+    } catch (e) {
+      return fallback;
+    }
+  }
+
+  function saveJSON(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) { /* storage unavailable, fail silently */ }
+  }
+
+  function formatNumber(value, code) {
+    if (!isFinite(value)) return "—";
+    var decimals = code === "BTC" ? 6 : 2;
+    var opts = { minimumFractionDigits: decimals, maximumFractionDigits: decimals };
+    try {
+      return value.toLocaleString(undefined, opts);
+    } catch (e) {
+      return value.toFixed(decimals);
+    }
+  }
+
+  function formatRatio(value) {
+    if (!isFinite(value)) return "—";
+    var decimals = value !== 0 && Math.abs(value) < 0.01 ? 8 : (Math.abs(value) < 1 ? 6 : 4);
+    return value.toFixed(decimals).replace(/0+$/, "").replace(/\.$/, "");
+  }
+
+  function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+
+  function formatTimestamp(date) {
+    if (!date) return "—";
+    var d = pad2(date.getDate());
+    var m = pad2(date.getMonth() + 1);
+    var y = date.getFullYear();
+    var hh = pad2(date.getHours());
+    var mm = pad2(date.getMinutes());
+    return d + "/" + m + "/" + y + " " + hh + ":" + mm;
+  }
+
+  // ---------------------------------------------------------------------
+  // Rates: fetch live, normalize to USD anchor, cache
+  // ---------------------------------------------------------------------
+  function fetchLiveRates() {
+    if (!navigator.onLine) {
+      return Promise.reject(new Error("offline"));
+    }
+    return fetch(API_URL, { cache: "no-store" }).then(function (res) {
+      if (!res.ok) throw new Error("bad response");
+      return res.json();
+    }).then(function (data) {
+      if (!data || data.result !== "success" || !data.rates) {
+        throw new Error("malformed payload");
+      }
+      var rates = {};
+      CODES.forEach(function (code) {
+        if (code === "BTC") return; // handled separately below
+        if (typeof data.rates[code] === "number") {
+          rates[code] = data.rates[code];
+        }
+      });
+      rates.USD = 1;
+
+      return getBtcUsdPrice().then(function (btcUsd) {
+        // btcUsd = USD per 1 BTC -> units of BTC per 1 USD
+        rates.BTC = 1 / btcUsd;
+        var payload = {
+          rates: rates,
+          updatedAt: new Date().toISOString()
+        };
+        saveJSON(LS_RATES, payload);
+        return payload;
+      });
+    });
+  }
+
+  function getBtcUsdPrice() {
+    return fetch("https://api.coinbase.com/v2/prices/BTC-USD/spot", { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("btc fetch failed");
+        return res.json();
+      })
+      .then(function (json) {
+        var amt = json && json.data && parseFloat(json.data.amount);
+        if (!amt || !isFinite(amt)) throw new Error("bad btc payload");
+        return amt;
+      })
+      .catch(function () {
+        var cached = loadJSON(LS_RATES, null);
+        if (cached && cached.rates && cached.rates.BTC) {
+          return 1 / cached.rates.BTC;
+        }
+        return FALLBACK_BTC_USD;
+      });
+  }
+
+  function loadCachedRates() {
+    var cached = loadJSON(LS_RATES, null);
+    if (cached && cached.rates) {
+      return {
+        rates: cached.rates,
+        updatedAt: cached.updatedAt ? new Date(cached.updatedAt) : null
+      };
+    }
+    return null;
+  }
+
+  function applyRatesPayload(payload, isLive) {
+    state.ratesUsd = payload.rates;
+    state.updatedAt = payload.updatedAt instanceof Date ? payload.updatedAt : new Date(payload.updatedAt);
+    renderTimestamp(isLive);
+    renderList();
+  }
+
+  function renderTimestamp(isLive) {
+    var el = document.getElementById("update-ts");
+    var prefix = isLive ? "Updated" : "Offline · Cached";
+    el.textContent = prefix + ": " + formatTimestamp(state.updatedAt);
+  }
+
+  function initRates() {
+    var cached = loadCachedRates();
+    if (cached) {
+      applyRatesPayload({ rates: cached.rates, updatedAt: cached.updatedAt }, false);
+    }
+    fetchLiveRates().then(function (payload) {
+      applyRatesPayload({ rates: payload.rates, updatedAt: new Date(payload.updatedAt) }, true);
+    }).catch(function () {
+      if (!cached) {
+        // No network and no cache at all: seed a minimal fallback so the UI works.
+        var fallback = {
+          rates: { USD: 1, ILS: 3.7, GBP: 0.78, EUR: 0.92, BTC: 1 / FALLBACK_BTC_USD, SGD: 1.34, IDR: 15800 },
+          updatedAt: new Date().toISOString()
+        };
+        applyRatesPayload({ rates: fallback.rates, updatedAt: new Date(fallback.updatedAt) }, false);
+      }
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Conversion math
+  // ---------------------------------------------------------------------
+  function convert(amount, fromCode, toCode) {
+    var fromRate = state.ratesUsd[fromCode];
+    var toRate = state.ratesUsd[toCode];
+    if (!fromRate || !toRate) return NaN;
+    var usdAmount = amount / fromRate;
+    return usdAmount * toRate;
+  }
+
+  function crossRatio(fromCode, toCode) {
+    return convert(1, fromCode, toCode);
+  }
+
+  // ---------------------------------------------------------------------
+  // Order (persisted via SortableJS drag)
+  // ---------------------------------------------------------------------
+  function loadOrder() {
+    var saved = loadJSON(LS_ORDER, null);
+    if (Array.isArray(saved) && saved.length) {
+      var valid = saved.filter(function (c) { return CODES.indexOf(c) !== -1; });
+      CODES.forEach(function (c) {
+        if (valid.indexOf(c) === -1) valid.push(c);
+      });
+      return valid;
+    }
+    return CODES.slice();
+  }
+
+  function saveOrder(order) {
+    saveJSON(LS_ORDER, order);
+  }
+
+  // ---------------------------------------------------------------------
+  // Rendering
+  // ---------------------------------------------------------------------
+  var listEl = document.getElementById("list-container");
+
+  function currencyByCode(code) {
+    return CURRENCIES.filter(function (c) { return c.code === code; })[0];
+  }
+
+  function renderList() {
+    listEl.innerHTML = "";
+    state.order.forEach(function (code) {
+      var meta = currencyByCode(code);
+      if (!meta) return;
+      var isBase = code === state.baseCode;
+
+      var value = convert(state.amount, state.baseCode, code);
+      var ratio = crossRatio(state.baseCode, code);
+
+      var card = document.createElement("div");
+      card.className = "card rounded-2xl px-4 py-3 flex items-center justify-between" + (isBase ? " is-base" : "");
+      card.dataset.code = code;
+
+      var leftHtml =
+        '<div class="flex items-center gap-3 flex-1 min-w-0 card-tap">' +
+          '<div class="text-2xl leading-none">' + meta.flag + '</div>' +
+          '<div class="min-w-0">' +
+            '<div class="flex items-baseline gap-2">' +
+              '<span class="font-bold text-base tracking-tight">' + meta.code + '</span>' +
+              '<span class="text-[11px] text-gray-500 truncate">' + meta.name + '</span>' +
+            '</div>' +
+            (isBase
+              ? '<div class="text-[11px] text-green-400 mt-0.5">Base currency</div>'
+              : '<div class="text-[11px] text-gray-500 mt-0.5">1 ' + state.baseCode + ' &rarr; ' + formatRatio(ratio) + ' ' + code + '</div>'
+            ) +
+          '</div>' +
+        '</div>';
+
+      var rightHtml =
+        '<div class="flex items-center gap-2 shrink-0">' +
+          '<div class="text-right card-tap">' +
+            '<div class="text-lg font-semibold tabular-nums">' + formatNumber(value, code) + '</div>' +
+          '</div>' +
+          '<div class="drag-handle text-xl select-none">☰</div>' +
+        '</div>';
+
+      card.innerHTML = leftHtml + rightHtml;
+      listEl.appendChild(card);
+    });
+  }
+
+  // Tap anywhere on the card (except the drag handle) sets base currency.
+  // isSorting guards against a stray click firing right as a drag ends.
+  var isSorting = false;
+  listEl.addEventListener("click", function (e) {
+    if (isSorting) return;
+    var handle = e.target.closest(".drag-handle");
+    if (handle) return;
+    var card = e.target.closest(".card");
+    if (!card) return;
+    setBaseCurrency(card.dataset.code);
+  });
+
+  function setBaseCurrency(code) {
+    if (!CODES.includes(code)) return;
+    state.baseCode = code;
+    saveJSON(LS_BASE, code);
+    document.getElementById("base-label").textContent = code;
+    document.getElementById("editing-code").textContent = code;
+    renderList();
+  }
+
+  // ---------------------------------------------------------------------
+  // SortableJS drag handling
+  // ---------------------------------------------------------------------
+  var sortable = new Sortable(listEl, {
+    handle: ".drag-handle",
+    animation: 150,
+    delay: 0,
+    delayOnTouchOnly: false,
+    touchStartThreshold: 5,
+    onStart: function () {
+      isSorting = true;
+    },
+    onEnd: function () {
+      var newOrder = Array.prototype.slice.call(listEl.children).map(function (el) {
+        return el.dataset.code;
+      });
+      state.order = newOrder;
+      saveOrder(newOrder);
+      setTimeout(function () { isSorting = false; }, 50);
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // Keypad / expression evaluator
+  // ---------------------------------------------------------------------
+  var exprDisplay = document.getElementById("expr-display");
+  var keypadPanel = document.getElementById("keypad-panel");
+
+  function sanitizeExpression(str) {
+    return str.replace(/[^0-9.+\-*/]/g, "");
+  }
+
+  function safeEval(expr) {
+    var clean = sanitizeExpression(expr);
+    if (!clean) return NaN;
+    // Reject anything with two consecutive operators, leading operators (except -),
+    // or trailing operators, to avoid throwing / weird results.
+    if (/[+\-*/]{2,}/.test(clean.replace(/^-/, ""))) return NaN;
+    if (/[+\-*/]$/.test(clean)) return NaN;
+    if (!/^-?[0-9.]+([+\-*/][0-9.]+)*$/.test(clean)) return NaN;
+    try {
+      var result = Function('"use strict"; return (' + clean + ");")();
+      return typeof result === "number" && isFinite(result) ? result : NaN;
+    } catch (e) {
+      return NaN;
+    }
+  }
+
+  function updateExprDisplay() {
+    exprDisplay.textContent = state.expression || "0";
+  }
+
+  function commitAmountFromExpression() {
+    var result = safeEval(state.expression);
+    if (isFinite(result)) {
+      state.amount = result;
+    }
+  }
+
+  keypadPanel.addEventListener("click", function (e) {
+    var btn = e.target.closest("button.kbtn");
+    if (!btn) return;
+
+    var action = btn.dataset.action;
+    var value = btn.dataset.value;
+
+    if (action === "clear") {
+      state.expression = "";
+      state.amount = 0;
+    } else if (action === "back") {
+      state.expression = state.expression.slice(0, -1);
+    } else if (action === "percent") {
+      var current = safeEval(state.expression);
+      if (isFinite(current)) {
+        state.expression = String(current / 100);
+      }
+    } else if (action === "reset-base") {
+      setBaseCurrency("ILS");
+    } else if (action === "equals") {
+      var result = safeEval(state.expression);
+      if (isFinite(result)) {
+        state.expression = trimFloat(result);
+        state.amount = result;
+      }
+    } else if (value !== undefined) {
+      if (state.expression === "0" && /[0-9]/.test(value)) {
+        state.expression = value;
+      } else {
+        state.expression = (state.expression || "") + value;
+      }
+    }
+
+    commitAmountFromExpression();
+    updateExprDisplay();
+    saveJSON(LS_AMOUNT, { expression: state.expression, amount: state.amount });
+    renderList();
+  });
+
+  function trimFloat(n) {
+    if (!isFinite(n)) return "0";
+    var rounded = Math.round(n * 1e8) / 1e8;
+    return String(rounded);
+  }
+
+  // ---------------------------------------------------------------------
+  // Init
+  // ---------------------------------------------------------------------
+  function init() {
+    state.order = loadOrder();
+
+    var savedBase = loadJSON(LS_BASE, null);
+    state.baseCode = (savedBase && CODES.includes(savedBase)) ? savedBase : "ILS";
+    document.getElementById("base-label").textContent = state.baseCode;
+    document.getElementById("editing-code").textContent = state.baseCode;
+
+    var savedAmount = loadJSON(LS_AMOUNT, null);
+    if (savedAmount && typeof savedAmount.amount === "number") {
+      state.amount = savedAmount.amount;
+      state.expression = savedAmount.expression || String(savedAmount.amount);
+    } else {
+      state.amount = 1;
+      state.expression = "1";
+    }
+    updateExprDisplay();
+
+    initRates();
+
+    window.addEventListener("online", function () {
+      fetchLiveRates().then(function (payload) {
+        applyRatesPayload({ rates: payload.rates, updatedAt: new Date(payload.updatedAt) }, true);
+      }).catch(function () {});
+    });
+
+    // Block gestures that could trigger native zoom/selection
+    document.addEventListener("gesturestart", function (e) { e.preventDefault(); });
+    document.addEventListener("dblclick", function (e) { e.preventDefault(); }, { passive: false });
+    document.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
